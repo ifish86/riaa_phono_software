@@ -3,6 +3,8 @@
 #include <WS2812FX.h>
 #include <Adafruit_SSD1306.h>
 
+#define SOFT_VERSION "0.0.0.1"
+
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define ADDRESSED_OPCODE_BIT0_LOW_TO_WRITE 0
@@ -21,7 +23,7 @@
 #define UPDATES_PER_SECOND 100
 #define LED_PIN     7
 #define NUM_LEDS    3
-#define BRIGHTNESS  64
+#define BRIGHTNESS  16
 #define LED_TYPE    WS2812
 #define COLOR_ORDER GRB
 
@@ -101,6 +103,9 @@ int negativeSag=0;                //Used to make sure spurious analog reads trip
 int PTO=0;                        //Power TimeOut, used make sure power on sequence does not become stuck in a loop
 int btn_press=0;
 
+int trig_state = 0;
+int trig_state_last = 0;
+
 void setup() {
   //while (!Serial);
   delay(100);
@@ -113,14 +118,7 @@ void setup() {
 
   pinMode(BTN_PWR, INPUT);
   pinMode(BTN_MUTE, INPUT);
-
-  /*mute();
-  delay(100);
-  digitalWrite(INPUT_RLY, LOW);
-  delay(100);
-  digitalWrite(PWR_SAFE, LOW);
-  delay(100);
-  digitalWrite(, LOW);*/
+  pinMode(TRIG_PWR, INPUT);
   
   // Initialize the strip
   ws2812fx.init();
@@ -220,27 +218,25 @@ void loop() {
 void loop1() {
   ++c;
   ws2812fx.service();
-/*
-  if (!digitalRead(BTN_PWR) && state_btn == 0) {
-    state_btn = BTN_PWR;
+
+  if (!digitalRead(TRIG_PWR) && trig_state == 0) {
+    Serial.println("trigger on!");
+    trig_state=1;
     if (state_pwr == 0) {
       power_on();
-    } else if (state_pwr > 1) {
+    }
+    trig_state_last = 1;
+  } else if (digitalRead(TRIG_PWR) && trig_state == 1) {
+    Serial.println("trigger OFF!");
+    trig_state=0;
+    if (state_pwr > 0 && trig_state_last == 1) {
       power_off();
     }
-  } else if (!digitalRead(BTN_MUTE) && state_btn == 0) {
-    state_btn = BTN_MUTE;
-    if (state_muted == 1) {
-      unmute();
-    } else {
-      mute();
-    }
-  } else if (digitalRead(BTN_MUTE) && digitalRead(BTN_PWR)) {
-    state_btn = 0;
+    trig_state_last = 0;
   }
-*/
+  
   int key = keyboard_get();
-  if (key == BTN_PWR) {
+  if (key == BTN_PWR && trig_state == 0) {
     Serial.println("power button push");
     toggle_pwr();
   } else if (key == BTN_MUTE) {
@@ -325,7 +321,7 @@ void power_on() {
     display.setTextSize(2);             // Normal 1:1 pixel scale
     display.setTextColor(SSD1306_WHITE);        // Draw white text
     display.setCursor(0, 0);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
-    display.println("O");
+    display.println(SOFT_VERSION);
     display.display();
     digitalWrite(PWR_EN, HIGH);
     PTO = 30;
@@ -343,10 +339,12 @@ void power_state() {
       display.clearDisplay();
       display.setTextSize(2);             // Normal 1:1 pixel scale
       display.setTextColor(SSD1306_WHITE);        // Draw white text
-      display.setCursor(32, 0);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+      display.setCursor(16, 0);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
       display.println("Powering");
-      display.setCursor(32, 32);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+      display.setCursor(16, 32);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
       display.println("On!");
+      display.setCursor(64, 32);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+      display.println(SOFT_VERSION);
       display.display();
       digitalWrite(PWR_SAFE, HIGH);
       digitalWrite(INPUT_RLY, HIGH);
@@ -371,9 +369,9 @@ void power_off() {
   display.clearDisplay();
   display.setTextSize(2);             // Normal 1:1 pixel scale
   display.setTextColor(SSD1306_WHITE);        // Draw white text
-  display.setCursor(32, 0);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+  display.setCursor(16, 0);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
   display.println("Powering");
-  display.setCursor(32, 32);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+  display.setCursor(16, 32);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
   display.println("Off!");
   display.display();
   mute();
@@ -388,6 +386,7 @@ void power_off() {
   ws2812fx.setSegment(1, 1, 1, FX_MODE_STATIC, RED, 200, false);
   ws2812fx.setSegment(2, 2, 2, FX_MODE_STATIC, WHITE, 200, false);
   state_pwr=0;
+  PTO=0;
 }
 
 void mute() {
@@ -421,6 +420,14 @@ void drawMuteState() {
   display.display();
 }
 
+void drawTrigState() {
+  display.fillRect(0, 25, 32, ICON_HEIGHT, SSD1306_BLACK);
+  if (trig_state == 1) {
+    display.setCursor(0, 25);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+    display.print("TRIG");
+  }
+}
+
 void updateDisplayDiagnostic() {
   display.clearDisplay();
   display.setTextSize(2);             // Normal 1:1 pixel scale
@@ -428,10 +435,15 @@ void updateDisplayDiagnostic() {
   display.setCursor(80, 0);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
   display.print(primaryRailAvg, 1);
   display.print("V");
-  display.setCursor(56, 32);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+  display.setCursor(56, 25);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
   display.print("-");
   display.print(negativeRailAvg,1);
   display.print("V");
+  display.setCursor(0, 50);     //<pixels from left>, <pixels from top>; 0,0 is top left corner
+  display.print("V.");
+  display.println(SOFT_VERSION);
+  drawTrigState();
   drawMuteState();
-  display.display();
+  
+  //display.display();
 }
